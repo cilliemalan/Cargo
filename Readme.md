@@ -1,7 +1,5 @@
-#Cargo
+# Cargo
 
-A very very lightweight content management thingy for ASP.Net
-
-Doesn't do much yet. Watch this space!
+A very very lightweight content management thingy for ASP.Net. Don't use it. Only here because some products still use it
 
 [License](LICENSE.md)
