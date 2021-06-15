@@ -18,8 +18,32 @@ namespace Cargo
         private string _rxId = @"^(.*)\/(.+)";
         private DbContext _dataContext;
         private bool _ownsContext;
+        private ContentCache _cache;
 
-        private DbSet<ContentItem> ContentItems { get { return _dataContext.Set<ContentItem>(); } }
+        private DbSet<ContentItem> ContentItems
+        {
+            get
+            {
+                return _dataContext.Set<ContentItem>();
+            }
+        }
+
+        /// <summary>
+        /// Cached DB items. Used not to overwhelm the DB. Stored as a list inside a singleton
+        /// </summary>
+        private List<ContentItem> ContentItemsCached
+        {
+            get
+            {
+                //If the cache is empty, populate it from the DB
+                if (_cache.ContentItems == null)
+                {
+                    ContentCache.InitContentItems(_dataContext.Set<ContentItem>().Select(AddIds).ToList());
+                }
+
+                return _cache.ContentItems;
+            }
+        }
 
         /// <summary>
         /// Create a new <see cref="EntityFrameworkCargoDataSource"/> given an instance of <see cref="DbContext"/>. 
@@ -33,6 +57,9 @@ namespace Cargo
         {
             _dataContext = dataContext;
             _ownsContext = ownsContext;
+
+            //Get the cache
+            _cache = ContentCache.Instance;
         }
 
         /// <inheritdoc />
@@ -41,15 +68,14 @@ namespace Cargo
             ValidateLocation(location);
             ValidateKey(key);
 
-            return AddIds(ContentItems.Find(location, key));
+            return AddIds(ContentItemsCached.Find(x => x.Location.Equals(location) &&
+                                                       x.Key.Equals(key)));
         }
 
         /// <inheritdoc />
         public override ICollection<ContentItem> GetAllContent()
         {
-            return ContentItems
-                .Select(AddIds)
-                .ToList();
+            return ContentItemsCached;
         }
 
         /// <inheritdoc />
@@ -57,8 +83,7 @@ namespace Cargo
         {
             ValidateLocation(location);
 
-            return ContentItems
-                .Select(AddIds)
+            return ContentItemsCached
                 .Where(x => x.Location == location && x.OriginalContent != null)
                 .ToList();
         }
@@ -66,7 +91,7 @@ namespace Cargo
         /// <inheritdoc />
         public override ICollection<string> GetAllLocations()
         {
-            return ContentItems
+            return ContentItemsCached
                 .Select(x => x.Location)
                 .Distinct()
                 .ToList();
@@ -82,7 +107,8 @@ namespace Cargo
             ValidateLocation(location);
             ValidateKey(key);
 
-            return AddIds(ContentItems.Find(location, key));
+            return AddIds(ContentItemsCached.Find(x => x.Location.Equals(location) &&
+                                                       x.Key.Equals(key)));
         }
 
         /// <inheritdoc />
@@ -93,6 +119,7 @@ namespace Cargo
                 if(item != null)
                 {
                     ContentItems.Remove(item);
+                    _cache.RemoveItem(item);
                 }
             }
 
@@ -106,10 +133,13 @@ namespace Cargo
             ValidateLocation(location);
             defaultContent = defaultContent ?? "";
 
-            var contentItem = ContentItems.Find(location, key);
-            if(contentItem == null)
+            //Search the cache in memory to reduce DB calls
+            var cachedContentItem = ContentItemsCached.Find(x => x.Location.Equals(location) &&
+                                                           x.Key.Equals(key));
+
+            if (cachedContentItem == null)
             {
-                contentItem = ContentItems.Add(new ContentItem
+                var newContentItem = ContentItems.Add(new ContentItem
                 {
                     Content = defaultContent,
                     Key = key,
@@ -119,15 +149,21 @@ namespace Cargo
                 });
 
                 _dataContext.SaveChanges();
+
+                _cache.AddItem(newContentItem); //Update the cache as well
             }
 
-            if(contentItem.OriginalContent != defaultContent)
+            if(cachedContentItem.OriginalContent != defaultContent)
             {
+                var contentItem = ContentItems.Find(location, key);
+
                 contentItem.OriginalContent = defaultContent;
                 _dataContext.SaveChanges();
+
+                _cache.UpdateItemContent(contentItem); //Update the cache as well
             }
 
-            return contentItem;
+            return cachedContentItem;
         }
 
         /// <inheritdoc />
@@ -140,6 +176,7 @@ namespace Cargo
                 ValidateLocation(item.Location);
 
                 var contentItem = ContentItems.Find(item.Location, item.Key);
+
                 if (contentItem == null)
                 {
                     contentItem = ContentItems.Add(new ContentItem
@@ -152,6 +189,7 @@ namespace Cargo
                     });
 
                     anyset = true;
+                    _cache.AddItem(contentItem); //Add item to current cache
                 }
                 else
                 {
@@ -159,7 +197,9 @@ namespace Cargo
                     {
                         contentItem.Content = item.Content;
                         contentItem.OriginalContent = item.OriginalContent;
+
                         anyset = true;
+                        _cache.UpdateItem(contentItem); //Update item in current cache
                     }
                 }
             }
@@ -184,9 +224,12 @@ namespace Cargo
                 ValidateKey(key);
 
                 var contentItem = AddIds(ContentItems.Find(location, key));
+
                 if (contentItem != null)
                 {
                     contentItem.Content = item.Value;
+
+                    _cache.UpdateItemContent(contentItem); //Update the cached value
                 }
             }
 
@@ -211,7 +254,9 @@ namespace Cargo
                 ValidateLocation(location);
                 ValidateKey(key);
 
-                var contentItem = ContentItems.Find(location, key);
+                var contentItem = ContentItemsCached.Find(x => x.Location.Equals(location) &&
+                                                               x.Key.Equals(key));
+
                 if (contentItem != null) yield return contentItem;
             }
         }

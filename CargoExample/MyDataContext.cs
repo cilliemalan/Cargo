@@ -7,8 +7,13 @@ using Cargo;
 
 namespace CargoExample
 {
-    public class MyDataContext : DbContext
+    public class MyDataContext : DbContext 
     {
+        public MyDataContext() : base("name=DefaultConnection")
+        {
+
+        }
+
         protected override void OnModelCreating(DbModelBuilder modelBuilder)
         {
             modelBuilder.MapCargoContent();

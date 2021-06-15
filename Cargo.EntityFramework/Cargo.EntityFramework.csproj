@@ -52,6 +52,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="CargoEntityFrameworkExtensions.cs" />
+    <Compile Include="ContentCache.cs" />
     <Compile Include="EntityFrameworkCargoDataSource.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
